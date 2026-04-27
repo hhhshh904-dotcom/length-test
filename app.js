@@ -1,31 +1,63 @@
 const imageInput = document.getElementById('imageInput');
 const preview = document.getElementById('preview');
 const resultText = document.getElementById('result');
+const statusText = document.getElementById('statusText');
+const spinner = document.getElementById('loadingSpinner');
+const uploadBtn = document.getElementById('customUploadBtn');
+
+let mySession = null; // 全局变量，只加载一次模型！
+
+// 网页一打开，就开始悄悄加载模型
+async function initModel() {
+    try {
+        spinner.style.display = 'block';
+        // 创建全局的推理会话
+        mySession = await ort.InferenceSession.create('./my_aesthetic_scorer_web.onnx');
+        
+        // 加载成功后更新 UI
+        spinner.style.display = 'none';
+        statusText.style.display = 'none';
+        uploadBtn.innerText = "📸 点击上传照片";
+        uploadBtn.disabled = false; // 点亮上传按钮
+        resultText.innerText = "尺子准备就绪！";
+        resultText.style.color = "#4CAF50";
+    } catch (e) {
+        console.error(e);
+        spinner.style.display = 'none';
+        statusText.innerText = "❌ 加载失败，请刷新网页重试。";
+        statusText.style.color = "red";
+    }
+}
+
+// 启动初始化
+initModel();
 
 // 监听图片上传事件
 imageInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
-    if (!file) return;
+    if (!file || !mySession) return;
 
-    // 显示预览图
     const reader = new FileReader();
     reader.onload = (event) => {
         preview.src = event.target.result;
-        preview.style.display = 'block';
-        resultText.innerText = "⏳ 正在测量中...";
+        preview.style.display = 'inline-block';
         
-        // 等图片加载完再开始推理
-        preview.onload = () => runModel(preview);
+        // 改变 UI 状态为计算中
+        resultText.innerText = "🔥正在用尺子测量jj中...";
+        resultText.style.color = "#FF5722";
+        spinner.style.display = 'block';
+        uploadBtn.disabled = true; // 计算时暂时禁用按钮
+        
+        // 【核心魔法】用 setTimeout 强行让出一点点时间，让浏览器先把上面那个转圈圈画出来，再去卡死算张量
+        setTimeout(() => {
+            runModel(preview);
+        }, 100); 
     };
     reader.readAsDataURL(file);
 });
 
 async function runModel(imgElement) {
     try {
-        // 1. 加载模型。注意这里使用相对路径 './'，极其关键，有效防止 GitHub Pages 的 404 报错
-        const session = await ort.InferenceSession.create('./my_aesthetic_scorer_web.onnx');
-
-        // 2. 利用 Canvas 将图片暴力缩放为 224x224
         const canvas = document.createElement('canvas');
         canvas.width = 224;
         canvas.height = 224;
@@ -33,7 +65,6 @@ async function runModel(imgElement) {
         ctx.drawImage(imgElement, 0, 0, 224, 224);
         const imgData = ctx.getImageData(0, 0, 224, 224).data;
 
-        // 3. 魔法时刻：将像素数据转为 PyTorch 兼容的 Float32 张量格式 [1, 3, 224, 224]
         const floatData = new Float32Array(3 * 224 * 224);
         const mean = [0.485, 0.456, 0.406];
         const std = [0.229, 0.224, 0.225];
@@ -42,25 +73,29 @@ async function runModel(imgElement) {
             let r = imgData[i * 4 + 0] / 255.0;
             let g = imgData[i * 4 + 1] / 255.0;
             let b = imgData[i * 4 + 2] / 255.0;
-
-            // R, G, B 分层排列 (Planar format)
             floatData[i] = (r - mean[0]) / std[0]; 
             floatData[224 * 224 + i] = (g - mean[1]) / std[1]; 
             floatData[2 * 224 * 224 + i] = (b - mean[2]) / std[2]; 
         }
 
-        // 4. 创建 Tensor 并扔给模型
         const tensor = new ort.Tensor('float32', floatData, [1, 3, 224, 224]);
-        const feeds = { [session.inputNames[0]]: tensor };
-        const results = await session.run(feeds);
+        const feeds = { [mySession.inputNames[0]]: tensor };
+        
+        // 使用全局 session 进行推理
+        const results = await mySession.run(feeds);
 
-        // 5. 提取并展示最后的分数！
-        const outputName = session.outputNames[0];
+        const outputName = mySession.outputNames[0];
         let score = results[outputName].data[0];
-        resultText.innerText = `✨ 你的jj长度是：${score.toFixed(2)} cm！`;
+        
+        // 恢复 UI
+        spinner.style.display = 'none';
+        uploadBtn.disabled = false;
+        resultText.innerText = `你的jj长度是：${score.toFixed(2)} cm！`;
 
     } catch (e) {
         console.error(e);
-        resultText.innerText = "❌ 运行失败，看眼 F12 控制台是不是路径不对。";
+        spinner.style.display = 'none';
+        uploadBtn.disabled = false;
+        resultText.innerText = "❌ 运算崩溃。如果是切屏导致的，请刷新网页。";
     }
 }
