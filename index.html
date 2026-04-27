@@ -3,24 +3,44 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JJ长度测量器</title>
+    <title>jj长度测量器</title>
     <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
     <style>
-        body { font-family: sans-serif; text-align: center; margin-top: 50px; }
-        #preview { max-width: 300px; margin-top: 20px; border-radius: 10px; }
+        body { font-family: sans-serif; text-align: center; margin-top: 30px; padding: 0 15px; }
+        #preview { max-width: 100%; height: auto; max-height: 300px; margin-top: 20px; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        .upload-btn { padding: 10px 20px; font-size: 16px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        .upload-btn:disabled { background-color: #cccccc; cursor: not-allowed; }
+        
+        /* 绚丽的转圈圈动画 */
+        .loader {
+            border: 5px solid #f3f3f3; border-top: 5px solid #ff5722;
+            border-radius: 50%; width: 40px; height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto; display: none;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        #result { color: #FF5722; font-weight: bold; margin-top: 15px; min-height: 30px; }
+        .warning { font-size: 12px; color: #888; margin-top: 10px; }
     </style>
 </head>
 <body>
 
-    <h1> JJ长度测量器😄</h1>
-    <p>快来测测你的长度，与你的好友一较高下！</p>
+    <h1>jj长度测量（很准😀）</h1>
+    <p class="warning">测量时请保持屏幕常亮，<b>切勿切换应用或锁屏</b>，否则会导致内存崩溃！</p>
 
-    <input type="file" id="imageInput" accept="image/*">
+    <div id="statusText">⏳ (初次加载可能需要几十秒，请稍候)...</div>
+    <div class="loader" id="loadingSpinner"></div>
+
     <br>
+    <input type="file" id="imageInput" accept="image/*" style="display:none;">
+    <button class="upload-btn" id="customUploadBtn" onclick="document.getElementById('imageInput').click();" disabled>
+        模型未准备好...
+    </button>
     
+    <br>
     <img id="preview" style="display:none;">
-    
-    <h2 id="result" style="color: #FF5722;">等待上传照片...</h2>
+    <h2 id="result"></h2>
 
     <script src="app.js"></script>
 
