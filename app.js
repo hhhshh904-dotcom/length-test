@@ -2,37 +2,77 @@ const imageInput = document.getElementById('imageInput');
 const preview = document.getElementById('preview');
 const resultText = document.getElementById('result');
 const statusText = document.getElementById('statusText');
-const spinner = document.getElementById('loadingSpinner');
+const progressContainer = document.getElementById('progressContainer');
+const progressBar = document.getElementById('progressBar');
 const uploadBtn = document.getElementById('customUploadBtn');
 
-let mySession = null; // 全局变量，只加载一次模型！
+let mySession = null; 
 
-// 网页一打开，就开始悄悄加载模型
+// 网页一打开，手动拦截并下载模型
 async function initModel() {
     try {
-        spinner.style.display = 'block';
-        // 创建全局的推理会话
-        mySession = await ort.InferenceSession.create('./my_aesthetic_scorer_web.onnx');
+        progressContainer.style.display = 'block';
+        statusText.innerText = "开始制作尺子";
+
+        // 1. 发起请求，但不直接拿结果，而是拿到一个“水管”(reader)
+        const response = await fetch('./my_aesthetic_scorer_web.onnx');
+        const contentLength = response.headers.get('content-length'); // 获取文件总大小
+        const totalBytes = parseInt(contentLength, 10);
+        let loadedBytes = 0;
+
+        const reader = response.body.getReader();
+        const chunks = []; // 用来存每一滴水
+
+        // 2. 循环接水，直到接满
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break; // 下载完了
+            
+            chunks.push(value);
+            loadedBytes += value.length;
+
+            // 实时计算进度并更新进度条！
+            if (totalBytes) {
+                let percent = Math.round((loadedBytes / totalBytes) * 100);
+                progressBar.style.width = percent + '%';
+                statusText.innerText = `⏳ 加载中: ${percent}% (${(loadedBytes/1024/1024).toFixed(1)} MB / ${(totalBytes/1024/1024).toFixed(1)} MB)`;
+            } else {
+                statusText.innerText = `⏳ 加载中: ${(loadedBytes/1024/1024).toFixed(1)} MB...`;
+            }
+        }
+
+        statusText.innerText = "尺子制作完成！正在初始化...";
+
+        // 3. 把所有的水滴拼成一个完整的文件
+        const modelBuffer = new Uint8Array(loadedBytes);
+        let position = 0;
+        for (let chunk of chunks) {
+            modelBuffer.set(chunk, position);
+            position += chunk.length;
+        }
+
+        // 4. 把拼好的文件直接喂给 ONNX Runtime！
+        mySession = await ort.InferenceSession.create(modelBuffer);
         
-        // 加载成功后更新 UI
-        spinner.style.display = 'none';
+        // 5. 准备就绪，隐藏进度条，点亮按钮
+        progressContainer.style.display = 'none';
         statusText.style.display = 'none';
-        uploadBtn.innerText = "📸 点击上传照片";
-        uploadBtn.disabled = false; // 点亮上传按钮
+        uploadBtn.innerText = "📸 点击上传照片测量";
+        uploadBtn.disabled = false; 
         resultText.innerText = "尺子准备就绪！";
         resultText.style.color = "#4CAF50";
+
     } catch (e) {
         console.error(e);
-        spinner.style.display = 'none';
-        statusText.innerText = "❌ 加载失败，请刷新网页重试。";
+        statusText.innerText = "❌ 加载失败，请检查网络后刷新网页。";
         statusText.style.color = "red";
     }
 }
 
-// 启动初始化
+// 启动！
 initModel();
 
-// 监听图片上传事件
+// 后面的测图逻辑和之前一样（假进度条处理计算瞬间）
 imageInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file || !mySession) return;
@@ -42,13 +82,11 @@ imageInput.addEventListener('change', (e) => {
         preview.src = event.target.result;
         preview.style.display = 'inline-block';
         
-        // 改变 UI 状态为计算中
-        resultText.innerText = "🔥正在用尺子测量jj中...";
+        // 计算时显示一个伪进度效果
+        resultText.innerText = "照片已收到，正在测量...";
         resultText.style.color = "#FF5722";
-        spinner.style.display = 'block';
-        uploadBtn.disabled = true; // 计算时暂时禁用按钮
+        uploadBtn.disabled = true; 
         
-        // 【核心魔法】用 setTimeout 强行让出一点点时间，让浏览器先把上面那个转圈圈画出来，再去卡死算张量
         setTimeout(() => {
             runModel(preview);
         }, 100); 
@@ -80,22 +118,17 @@ async function runModel(imgElement) {
 
         const tensor = new ort.Tensor('float32', floatData, [1, 3, 224, 224]);
         const feeds = { [mySession.inputNames[0]]: tensor };
-        
-        // 使用全局 session 进行推理
         const results = await mySession.run(feeds);
 
         const outputName = mySession.outputNames[0];
         let score = results[outputName].data[0];
         
-        // 恢复 UI
-        spinner.style.display = 'none';
         uploadBtn.disabled = false;
-        resultText.innerText = `你的jj长度是：${score.toFixed(2)} cm！`;
+        resultText.innerText = `你的jj长度：${score.toFixed(2)} cm！`;
 
     } catch (e) {
         console.error(e);
-        spinner.style.display = 'none';
         uploadBtn.disabled = false;
-        resultText.innerText = "❌ 运算崩溃。如果是切屏导致的，请刷新网页。";
+        resultText.innerText = "❌ 运算崩溃。";
     }
 }
